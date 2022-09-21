@@ -1,14 +1,14 @@
 import {
   createDecoratorDefinition,
   DecoratorContext,
-  InterfaceType,
-  NamespaceType,
-  OperationType,
+  Interface,
+  Namespace,
+  Operation,
   Program,
   getIntrinsicModelName,
   Type,
-  ModelType,
-  ArrayType,
+  Model,
+  isNeverType,
 } from "@cadl-lang/compiler";
 import {
   getAllRoutes,
@@ -32,10 +32,7 @@ const functionDecorator = createDecoratorDefinition({
   args: [],
 } as any); // hopefully this any cast isn't needed in latest cadl?
 
-type FunctionStateMap = Map<
-  NamespaceType | InterfaceType | OperationType,
-  true
->;
+type FunctionStateMap = Map<Namespace | Interface | Operation, true>;
 
 export function getFunctionState(p: Program): FunctionStateMap {
   return p.stateMap(functionKey) as FunctionStateMap;
@@ -43,12 +40,12 @@ export function getFunctionState(p: Program): FunctionStateMap {
 
 export function isAzureFunction(
   p: Program,
-  t: NamespaceType | InterfaceType | OperationType
+  t: Namespace | Interface | Operation
 ) {
   return !!getFunctionState(p).get(t);
 }
 
-export function $AzureFunction(context: DecoratorContext, t: NamespaceType) {
+export function $AzureFunction(context: DecoratorContext, t: Namespace) {
   if (!functionDecorator.validate(context, t, [])) {
     return;
   }
@@ -92,8 +89,7 @@ function createFunctionsEmitter(program: Program, basePath: string) {
     if (isAzureFunction(program, operation.operation)) {
       return true;
     }
-    let container: NamespaceType | InterfaceType | undefined =
-      operation.container;
+    let container: Namespace | Interface | undefined = operation.container;
     while (container) {
       if (isAzureFunction(program, container)) {
         return true;
@@ -224,9 +220,9 @@ function createFunctionsEmitter(program: Program, basePath: string) {
     // rather than last.
 
     // get body param
-    if (operation.parameters.body) {
-      marshallingCode += `const ${operation.parameters.body.name} = req.body;`;
-      params.push(operation.parameters.body.name);
+    if (operation.parameters.bodyParameter) {
+      marshallingCode += `const ${operation.parameters.bodyParameter.name} = req.body;`;
+      params.push(operation.parameters.bodyParameter.name);
     }
     return [marshallingCode, params];
   }
@@ -497,9 +493,7 @@ function createTSInterfaceEmitter(program: Program) {
 
     switch (type.kind) {
       case "Model":
-        return generateModelType(type);
-      case "Array":
-        return generateArrayType(type);
+        return generateModel(type);
       case "Number":
         return type.value.toString();
       case "String":
@@ -507,14 +501,14 @@ function createTSInterfaceEmitter(program: Program) {
       case "Union":
         return type.options.map(getTypeReference).join("|");
       case "Operation":
-        return generateOperationType(type);
+        return generateOperation(type);
       default:
         // todo: diagnostic
         return "{}";
     }
   }
 
-  function generateOperationType(type: OperationType): string {
+  function generateOperation(type: Operation): string {
     const ref = type.name;
     // todo: this is always async, but to generalize it should not be the case.
     let str = `interface ${type.name} {
@@ -529,7 +523,7 @@ function createTSInterfaceEmitter(program: Program) {
     return ref;
   }
 
-  function generateOperationParameters(type: OperationType): string {
+  function generateOperationParameters(type: Operation): string {
     let params: string[] = [];
     for (const param of type.parameters.properties.values()) {
       params.push(
@@ -542,11 +536,23 @@ function createTSInterfaceEmitter(program: Program) {
     return params.join(", ");
   }
 
-  function generateArrayType(type: ArrayType) {
-    return `${getTypeReference(type.elementType)}[]`;
+  function generateArrayType(type: Type) {
+    return `${getTypeReference(type)}[]`;
   }
 
-  function generateModelType(type: ModelType): string {
+  function generateModel(type: Model): string {
+    if (type.indexer) {
+      if (isNeverType(type.indexer.key)) {
+      } else {
+        const name = getIntrinsicModelName(program, type.indexer.key);
+        if (name === "string") {
+          return `Record<string, ${getTypeReference(type)}>`;
+        } else if (name === "integer") {
+          return generateArrayType(type.indexer.value!);
+        }
+      }
+    }
+
     const intrinsicName = getIntrinsicModelName(program, type);
     if (intrinsicName) {
       if (!instrinsicNameToTSType.has(intrinsicName)) {
@@ -579,7 +585,7 @@ function createTSInterfaceEmitter(program: Program) {
     return typeRef;
   }
 
-  function getModelDeclarationName(type: ModelType): string {
+  function getModelDeclarationName(type: Model): string {
     if (
       type.templateArguments === undefined ||
       type.templateArguments.length === 0
@@ -592,10 +598,6 @@ function createTSInterfaceEmitter(program: Program) {
       switch (t.kind) {
         case "Model":
           return getModelDeclarationName(t);
-        case "Array":
-          if (t.elementType.kind === "Model") {
-            return getModelDeclarationName(t.elementType) + "Array";
-          }
         // fallthrough
         default:
           throw new Error(

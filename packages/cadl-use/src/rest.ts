@@ -1,9 +1,4 @@
-import {
-  InterfaceType,
-  NamespaceType,
-  OperationType,
-  Program,
-} from "@cadl-lang/compiler";
+import { Operation, Program } from "@cadl-lang/compiler";
 import {
   getAllRoutes,
   OperationContainer,
@@ -12,9 +7,10 @@ import {
 
 export function getRestOperationDefinition(
   program: Program,
-  operation: OperationType
+  operation: Operation
 ): OperationDetails {
   const [routes, _diagnostics] = getAllRoutes(program);
+  console.log("Op",operation.name, routes.map(x=> x.operation.name))
   const [info] = routes.filter((r) => r.operation === operation);
   if (!info) {
     throw new Error("No route for operation.");

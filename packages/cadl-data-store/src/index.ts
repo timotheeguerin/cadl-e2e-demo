@@ -1,16 +1,14 @@
 import {
   Program,
   EmitOptionsFor,
-  navigateProgram,
   Type,
   DecoratorContext,
-  ModelType,
-  ModelTypeProperty,
-  ArrayType,
+  Model,
+  ModelProperty,
   getIntrinsicModelName,
   createDecoratorDefinition,
-  StringLiteralType,
   isKey,
+  isNeverType,
 } from "@cadl-lang/compiler";
 import { DataStoreLibrary } from "./lib.js";
 import { mkdir, writeFile } from "fs/promises";
@@ -34,7 +32,7 @@ const storeDecorator = createDecoratorDefinition({
 } as const);
 
 type StoreStateMap = Map<
-  ModelType,
+  Model,
   { databaseName: string; collectionName: string | undefined }
 >;
 
@@ -44,7 +42,7 @@ function getStoreState(p: Program): StoreStateMap {
 
 export function $store(
   context: DecoratorContext,
-  t: ModelType,
+  t: Model,
   databaseName: string,
   collectionName: string
 ) {
@@ -63,7 +61,9 @@ export async function $onEmit(
   const emitter = createTsEmitter(p, { outputDir });
   emitter.emit();
 
-  addBicepFile("cosmos", `
+  addBicepFile(
+    "cosmos",
+    `
   param location string
   param principalId string = ''
   param resourceToken string
@@ -96,8 +96,11 @@ export async function $onEmit(
   }
 
   output cosmosConnectionStringValue string = cosmos.listConnectionStrings().connectionStrings[0].connectionString
-`)
-  addSecret("cosmosConnectionString", "cosmosConnectionStringValue", ["cosmos"]);
+`
+  );
+  addSecret("cosmosConnectionString", "cosmosConnectionStringValue", [
+    "cosmos",
+  ]);
 }
 
 const instrinsicNameToTSType = new Map<string, string>([
@@ -214,7 +217,11 @@ function createTsEmitter(p: Program, options: DataStoreEmitterOptions) {
     let fields: string[] = [];
     for (const [model, info] of getStoreState(p)) {
       const name = model.name;
-      fields.push(`public ${name}: EntityStore<${getTypeReference(model)}, ${getKeyFields(model)}>;`);
+      fields.push(
+        `public ${name}: EntityStore<${getTypeReference(model)}, ${getKeyFields(
+          model
+        )}>;`
+      );
     }
 
     return fields.join("\n");
@@ -232,15 +239,15 @@ function createTsEmitter(p: Program, options: DataStoreEmitterOptions) {
 
     return code;
   }
-  
-  function getKeyFields(model: ModelType) {
+
+  function getKeyFields(model: Model) {
     for (const prop of model.properties.values()) {
       if (isKey(p, prop)) {
         return `"${prop.name}"`;
       }
     }
 
-    return 'never';
+    return "never";
   }
 
   function getDataStoreInitCode() {
@@ -258,9 +265,7 @@ function createTsEmitter(p: Program, options: DataStoreEmitterOptions) {
 
     switch (type.kind) {
       case "Model":
-        return generateModelType(type);
-      case "Array":
-        return generateArrayType(type);
+        return generateModel(type);
       case "Number":
         return type.value.toString();
       case "String":
@@ -273,11 +278,23 @@ function createTsEmitter(p: Program, options: DataStoreEmitterOptions) {
     }
   }
 
-  function generateArrayType(type: ArrayType) {
-    return `${getTypeReference(type.elementType)}[]`;
+  function generateArrayType(type: Type) {
+    return `${getTypeReference(type)}[]`;
   }
 
-  function generateModelType(type: ModelType): string {
+  function generateModel(type: Model): string {
+    if (type.indexer) {
+      if (isNeverType(type.indexer.key)) {
+      } else {
+        const name = getIntrinsicModelName(p, type.indexer.key);
+        if (name === "string") {
+          return `Record<string, ${getTypeReference(type)}>`;
+        } else if (name === "integer") {
+          return generateArrayType(type.indexer.value!);
+        }
+      }
+    }
+    
     const intrinsicName = getIntrinsicModelName(p, type);
     if (intrinsicName) {
       if (!instrinsicNameToTSType.has(intrinsicName)) {
@@ -310,7 +327,7 @@ function createTsEmitter(p: Program, options: DataStoreEmitterOptions) {
     return typeRef;
   }
 
-  function getModelDeclarationName(type: ModelType): string {
+  function getModelDeclarationName(type: Model): string {
     if (
       type.templateArguments === undefined ||
       type.templateArguments.length === 0
@@ -323,10 +340,6 @@ function createTsEmitter(p: Program, options: DataStoreEmitterOptions) {
       switch (t.kind) {
         case "Model":
           return getModelDeclarationName(t);
-        case "Array":
-          if (t.elementType.kind === "Model") {
-            return getModelDeclarationName(t.elementType) + "Array";
-          }
         // fallthrough
         default:
           throw new Error(
@@ -338,5 +351,5 @@ function createTsEmitter(p: Program, options: DataStoreEmitterOptions) {
     return type.name + parameterNames.join("");
   }
 
-  function getModelProperty(model: ModelTypeProperty) {}
+  function getModelProperty(model: ModelProperty) {}
 }
