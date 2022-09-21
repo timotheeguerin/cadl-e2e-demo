@@ -8,26 +8,23 @@ listComments: listComments
       interface CommentRequest {
       contents: string
     }
-interface  {
-      statusCode: 200,id: string,contents: string,sentiment: string
-    }
-interface createComment {
-      (comment: CommentRequest): Promise<>
-    }
-interface  {
-      statusCode: 200,id: string,contents: string,sentiment: string
-    }
-interface getComment {
-      (id: string): Promise<>
-    }
 interface Comment {
       id: string,contents: string,sentiment: string
     }
-interface  {
+interface OkComment {
+      statusCode: 200,body: Comment
+    }
+interface createComment {
+      (comment: CommentRequest): Promise<OkComment>
+    }
+interface getComment {
+      (id: string): Promise<OkComment>
+    }
+interface OkCommentArray {
       statusCode: 200,body: Comment[]
     }
 interface listComments {
-      (): Promise<>
+      (): Promise<OkCommentArray>
     }
 
       export const Host: HostHooks = {} as any;

@@ -586,6 +586,15 @@ function createTSInterfaceEmitter(program: Program) {
   }
 
   function getModelDeclarationName(type: Model): string {
+    if (type.indexer) {
+      if (isNeverType(type.indexer.key)) {
+      } else {
+        const name = getIntrinsicModelName(program, type.indexer.key);
+        if (name === "integer") {
+          return `${getModelDeclarationName(type.indexer.value as any)}Array`;
+        }
+      }
+    }
     if (
       type.templateArguments === undefined ||
       type.templateArguments.length === 0

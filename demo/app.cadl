@@ -30,13 +30,16 @@ model CommentRequest {
 // @use("Azure.AI.TextAnalytics.Sentiment.analyzeSentiment")
 @route("/comments")
 interface Comments {
-  @post createComment(@body comment: CommentRequest): OkResponse & Comment;
-  @get getComment(@path id: string): OkResponse & Comment;
-  @get listComments(): OkResponse & {
-    @body body: Comment[];
-  };
+  @post createComment(@body comment: CommentRequest): Ok<Comment>;
+  @get getComment(@path id: string): Ok<Comment>;
+  @get listComments(): Ok<Comment[]>;
 }
 
 @AzureStaticWebApp
 // @use(Comments)
 interface Static {}
+
+model Ok<T> {
+  ...OkResponse,
+  @body body: T;
+}
